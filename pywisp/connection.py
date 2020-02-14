@@ -80,11 +80,13 @@ class SerialConnection(Connection, QtCore.QThread):
                 self.isConnected = False
                 self.min = None
                 return
-
             if frames and self.doRead:
                 self.readData(frames)
             else:
                 time.sleep(0.001)
+
+
+
 
     def connect(self):
         """
