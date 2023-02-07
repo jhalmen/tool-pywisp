@@ -99,6 +99,7 @@ class MainGui(QMainWindow):
         self.connections = {}
         self.isConnected = False
 
+        self.needUpdate = True
         self.timer = QTimer()
         self.timer.timeout.connect(self.updateDataPlots)
         self.heartbeatTimer = QTimer()
@@ -1495,8 +1496,11 @@ class MainGui(QMainWindow):
 
         time_text = "Exp time={}".format(timeString(time))
         self.expTimeLabel.setText(time_text)
+        self.needUpdate = True
 
     def updateDataPlots(self):
+        if not self.needUpdate:
+            return
         if self.visualizer:
             self.visualizer.update(self._currentDataPointBuffers)
             if self.vtkWidget is not None:
@@ -1504,6 +1508,7 @@ class MainGui(QMainWindow):
 
         for chart in self.plotCharts:
             chart.updatePlot()
+        self.needUpdate = False
 
     def heartbeat(self):
         self.writeToConnection({'id': 1,
