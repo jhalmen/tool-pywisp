@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import *
 from pywisp.utils import createDir
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib import animation
 
 __all__ = ["MplVisualizer", "VtkVisualizer"]
 
@@ -150,6 +151,12 @@ class MplVisualizer(Visualizer):
 
         self.qLayout.addWidget(self.canvas)
         self.qWidget.setLayout(self.qLayout)
+        self.anim = animation.FuncAnimation(self.fig, self.animate,
+                                            interval=30, blit=True,
+                                            cache_frame_data=False)
+        print("have anim");
+        self.anim.pause()
+        print("anim paused");
 
     def saveIfChecked(self):
         """
@@ -164,3 +171,5 @@ class MplVisualizer(Visualizer):
 
     def update(self, dataPoints):
         pass
+    def animate(self, data):
+        return []

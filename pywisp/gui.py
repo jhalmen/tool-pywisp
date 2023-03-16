@@ -459,6 +459,7 @@ class MainGui(QMainWindow):
         self.splashScreen.finish(self)
 
     def visualizerChanged(self, idx):
+        # clear visu
         for i in reversed(range(self.animationLayout.count())):
             self.animationLayout.itemAt(i).widget().setParent(None)
         if idx == -1:
@@ -1119,6 +1120,8 @@ class MainGui(QMainWindow):
         if self.visualizer is not None:
             self.visualizer.setExpName(expName)
             self.visualizer.startAnimation()
+            print("resuming animation")
+            self.visualizer.anim.resume()
 
         self.actStartExperiment.setDisabled(True)
         self.actStopExperiment.setDisabled(False)
@@ -1177,6 +1180,9 @@ class MainGui(QMainWindow):
         self.timer.stop()
         self.heartbeatTimer.stop()
         self.exp.stopExperiment()
+        if self.visualizer is not None:
+            print("pausing animation")
+            self.visualizer.anim.pause()
 
         # time.sleep(1)
 
@@ -1302,6 +1308,8 @@ class MainGui(QMainWindow):
             self.visComboBox.addItems([vis.__name__ for vis in used])
 
     def setVisualizer(self, vis):
+        if self.visualizer is not None:
+            del self.visualizer
         if issubclass(vis, MplVisualizer):
             self.visualizer = vis(self.animationWidget,
                                   self.animationLayout)
@@ -1468,6 +1476,7 @@ class MainGui(QMainWindow):
         self.actStopExperiment.setEnabled(False)
         self.statusbarLabel.setText('Not Connected')
         self.isConnected = False
+
 
     def findAllPlotDocks(self):
         """
