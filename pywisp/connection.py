@@ -13,7 +13,7 @@ from PyQt5.QtCore import QObject, QThread, pyqtSignal
 from .min import Packer, Unpacker, Frame, Bytewise
 from .utils import coroutine, pipe
 
-__all__ = ["Connection", "UdpConnection", "TcpConnection", "SerialConnection", "IACEConnection"]
+__all__ = ["Connection", "Udp", "Tcp", "Serial", "Socket"]
 
 
 class ConnReader(QObject):
@@ -54,7 +54,7 @@ class Connection(QObject):
     finished = pyqtSignal()
 
     def __init__(self, rx, tx, *args, **kwargs):
-        super().__init__()
+        super().__init__(kwargs.get("parent"))
         self._logger = logging.getLogger(self.__class__.__name__)
         self.tx = pipe([tx, self._send])
         thread = QThread()
@@ -62,16 +62,13 @@ class Connection(QObject):
         worker.moveToThread(thread)
         worker.err.connect(self.workerror)
         thread.started.connect(worker.run)
-        thread.finished.connect(thread.deleteLater)
         self.thread = thread
         self.worker = worker
         self.connected = False
 
     def workerror(self, err):
-        self.worker.deleteLater()
         self.disconnect()
         self._logger.error(err)
-        self.finished.emit()
 
     @coroutine
     def emitter(self):
@@ -89,27 +86,32 @@ class Connection(QObject):
         if not self.connected:
             return
         try:
-            self.tx.send((data['id'], data['msg']))
+            self.tx.send((int(data['id']), bytes(data['msg'])))
         except TimeoutError:
             pass
         except Exception as e:
-            self._logger.error(f"cannot send data: {e}")
+            self._logger.error(f"cannot send data: {type(e)}:'{e}'")
             self.disconnect()
 
     def connect(self):
         """ establish the connection """
+        if self.connected:
+            return True
         if self._connect():
             self.thread.start()
             self.connected = True
             return True
+        return False
 
     def disconnect(self):
         """ close the connection, stop worker and thread """
+        if not self.connected:
+            return
         self.connected = False
-        self.worker.quit()
-        self._disconnect()
-        self.thread.quit()
         self.finished.emit()
+        self._disconnect()
+        self.worker.quit()
+        self.thread.quit()
 
     @abstractmethod
     def _connect(self):
@@ -136,23 +138,23 @@ class Connection(QObject):
         pass
 
 
-class SerialConnection(Connection):
+class Serial(Connection):
     """
     Simple Serial Connection
     """
 
-    def __init__(self, port, baud):
+    def __init__(self, port, baud, **kwargs):
         self.serial = serial.Serial(timeout=0.01)
         self.serial.baudrate = baud
         self.serial.port = port
-        super().__init__(tx=Packer, rx=[Bytewise, Unpacker])
+        super().__init__(tx=Packer, rx=[Bytewise, Unpacker], **kwargs)
 
     def _connect(self):
         try:
             self.serial.open()
         except Exception as e:
             self._logger.error(f'cannot connect: {e}')
-            self.serial.close()
+            self._disconnect()
             return False
         return True
 
@@ -169,25 +171,28 @@ class SerialConnection(Connection):
             self.serial.write(data)
 
 
-class SocketConnection(Connection):
+class Socket(Connection):
     """
     Simple Socket based Connection
     """
 
-    def __init__(self, socket, ip, port, timeout=0.01, **kwargs):
+    def __init__(self, socketconfig, ip, port, timeout=0.01, **kwargs):
         self.ip = ip
         self.port = port
-        self.sock = socket
+        self.sckcfg = socketconfig
+        self.sock = socket.socket(**self.sckcfg)
         self.timeout = timeout
         super().__init__(**kwargs)
 
     def _connect(self):
         try:
+            if self.sock.fileno() == -1:
+                self.sock = socket.socket(**self.sckcfg)
             self.sock.settimeout(self.timeout)
             self.sock.connect((self.ip, int(self.port)))
-        except socket.error:
-            self._logger.error("Connection to the server is not possible!")
-            self.sock.close()
+        except socket.error as e:
+            self._logger.error(f"Connection to the server is not possible! {e}")
+            self._disconnect()
             return False
         return True
 
@@ -204,13 +209,14 @@ class SocketConnection(Connection):
             self.sock.sendall(data)
 
 
-class TcpConnection(SocketConnection):
+class Tcp(Socket):
     """
     Simple Tcp Connection
     """
 
     def __init__(self, ip, port, maxPayload=80, **kwargs):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock = {'family':socket.AF_INET,
+                'type':socket.SOCK_STREAM}
 
         @coroutine
         def Sender(sink):
@@ -232,15 +238,12 @@ class TcpConnection(SocketConnection):
         super().__init__(sock, ip, port, tx=Sender, rx=Receiver, **kwargs)
 
 
-class UdpConnection(SocketConnection):
+class Udp(Socket):
     """
     Simple Udp Connection
     """
 
     def __init__(self, ip, port, **kwargs):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock = {'family':socket.AF_INET,
+                'type':socket.SOCK_DGRAM}
         super().__init__(sock, ip, port, tx=Packer, rx=[Bytewise, Unpacker], **kwargs)
-
-class IACEConnection(UdpConnection):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
