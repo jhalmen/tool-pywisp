@@ -2,11 +2,13 @@
 from .experimentModules import ExperimentModule
 from .visualization import Visualizer
 from .connection import Connection
+from .widgets.connectors import Connector
 
 class Registry(dict):
     def __init__(self):
         self[ExperimentModule] = {}
         self[Connection] = {}
+        self[Connector] = []
         self[Visualizer] = {}
 
     def register(self, type, mod):
@@ -47,6 +49,12 @@ def getRegisteredConnections():
     """
     return _registry[Connection]
 
+def registerConnector(cls):
+    if cls not in _registry[Connector]:
+        _registry[Connector].append(cls)
+
+def getRegisteredConnectors():
+    return _registry[Connector]
 
 def registerVisualizer(visCls):
     """

@@ -17,6 +17,7 @@ from .gui import *
 from .registry import *
 from .utils import *
 from .visualization import *
+from .widgets.connectors import TCP, UDP, Serial
 
 __author__ = 'IACE'
 __email__ = 'jens.wurm@umit-tirol.at'
@@ -32,3 +33,8 @@ logging.config.dictConfig(log_conf)
 import sys
 if (dir := os.path.dirname(sys.argv[-1])):
     os.chdir(dir)
+
+
+registerConnector(TCP)
+registerConnector(UDP)
+registerConnector(Serial)

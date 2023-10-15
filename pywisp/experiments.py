@@ -349,11 +349,10 @@ class ExperimentInteractor(QObject):
         """
         return self.dataPoints
 
-    def handleFrame(self, frame, connection):
+    def handleFrame(self, frame):
         """
         Returns the corresponding data points of a frame of the test rig.
         :param frame: data from the test rig
-        :param connection: connection of the frame
         :return: data points or None if nothing found
         """
         if frame.id == 1:
@@ -362,8 +361,6 @@ class ExperimentInteractor(QObject):
             self.missedbeat.emit()
             return None
         for mod, _, _ in self.activeModules():
-            if mod.connection != connection:
-                continue
             dataPoints = mod.handleFrame(mod,frame)
             if dataPoints:
                 return dataPoints

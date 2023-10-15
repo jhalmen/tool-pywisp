@@ -5,7 +5,6 @@ import time
 from copy import deepcopy
 
 import pkg_resources
-import serial.tools.list_ports
 import yaml
 
 # vtk
@@ -35,12 +34,12 @@ from PyQt5.QtWidgets import *
 from pyqtgraph import PlotWidget, TextItem
 from pyqtgraph.dockarea import *
 
-from .connection import SerialConnection, SocketConnection, IACEConnection
+from .widgets.connectors import ConnectionMenu
 from .experiments import ExperimentInteractor, ExperimentView
 from .registry import *
 from .utils import getResource, PlainTextLogger, DataPointBuffer, PlotChart, Exporter, DataIntDialog, \
-    DataTcpIpDialog, RemoteWidgetEdit, FreeLayout, MovablePushButton, MovableSwitch, MovableSlider, PinnedDock, \
-    ContextLineEditAction, TreeWidgetStyledItemDelegate, IACEConnDialog
+    RemoteWidgetEdit, FreeLayout, MovablePushButton, MovableSwitch, MovableSlider, PinnedDock, \
+    ContextLineEditAction, TreeWidgetStyledItemDelegate
 
 from .visualization import MplVisualizer, VtkVisualizer
 from .gamepad import getGamepadByIndex
@@ -351,35 +350,9 @@ class MainGui(QMainWindow):
 
         # experiment
         self.expMenu = self.menuBar().addMenu('&Experiment')
-        self.connMenu = self.menuBar().addMenu('&Connections')
+        self.connMenu = ConnectionMenu(self)
+        self.menuBar().addMenu(self.connMenu)
 
-        availableConns = getRegisteredConnections()
-        if availableConns:
-            for name, cls in availableConns.items():
-                self._logger.info(f"Found Connection: {name}")
-                self.connections[name] = {'cls':cls}
-        else:
-            self._logger.error("No Connections found, return!")
-            # return
-
-        serialCnt = 0
-        for name, conn in self.connections.items():
-            cls = conn['cls']
-            if issubclass(cls, SerialConnection):
-                serialMenu = self.connMenu.addMenu(name)
-                self._getSerialMenu(serialMenu, cls.settings)
-                if cls.settings['port'] == '':
-                    self.setDefaultComPort(cls.settings, serialCnt)
-                serialCnt += 1
-            elif issubclass(cls, IACEConnection):
-                actTcp = self.connMenu.addAction(name)
-                actTcp.triggered.connect(lambda _, settings=cls.settings: self._getIACEMenu(settings))
-            elif issubclass(cls, SocketConnection):
-                actTcp = self.connMenu.addAction(name)
-                actTcp.triggered.connect(lambda _, settings=cls.settings: self._getTcpMenu(settings))
-            else:
-                self._logger.warning("Cannot handle the connection type!")
-            self.connMenu.addSeparator()
 
         self.expMenu.addSeparator()
         self.actConnect = QAction('&Connect')
@@ -468,107 +441,6 @@ class MainGui(QMainWindow):
 
         self.setVisualizer(available[visName])
 
-    def _getIACEMenu(self, settings):
-        data = IACEConnDialog.getData(parent=self,**settings)
-        if data:
-            ip, port = data
-            print(f"got {ip=} from Dialog")
-            settings['ip'] = ip
-            settings['port'] = port
-
-    def _getTcpMenu(self, settings):
-        # ip and port
-        ip, port, ok = DataTcpIpDialog.getData(parent=self,ip=settings['ip'], port=settings['port'])
-
-        if ok:
-            settings['ip'] = ip
-            settings['port'] = port
-
-    def _getSerialMenu(self, serialMenu, settings):
-        # port
-        portMenu = serialMenu.addMenu("Port")
-        portMenu.aboutToShow.connect(lambda: self.getComPorts(settings, portMenu))
-
-        # baud
-        baudMenu = serialMenu.addMenu("Baud")
-        baudMenu.aboutToShow.connect(lambda: self.getBauds(settings, baudMenu))
-
-        return serialMenu
-
-    def getBauds(self, settings, connMenu):
-        """
-        Sets the baud rate in serial connection menu
-        :param settings: serial connection settings
-        :param connMenu: serial connection menu
-        """
-
-        def setBaud(baud):
-            def fn():
-                settings['baud'] = baud
-
-            return fn
-
-        baud = settings['baud']
-        bauds = ['1200', '2400', '4800', '9600', '14400', '19200', '28800',
-                 '38400', '57600', '115200', '125000', '250000', '500000']
-        connMenu.clear()
-        for _baud in bauds:
-            baudAction = QAction(_baud, self)
-            baudAction.setCheckable(True)
-            baudAction.setChecked(True if _baud in str(baud) else False)
-            baudAction.triggered.connect(setBaud(_baud))
-            connMenu.addAction(baudAction)
-
-    def setDefaultComPort(self, settings, cnt):
-        """
-        Sets the default port in given connection settings if an Arduino can found. If more than one Arduino can found,
-        the counter describes the connection number.
-        :param settings: serial connection settings
-        :param cnt: counter for serial connection
-        """
-        comPorts = serial.tools.list_ports.comports()
-        if comPorts:
-            arduinoPorts = [p.device for p in comPorts if 'Arduino' in p.description]
-
-            if len(arduinoPorts) != 0 and len(arduinoPorts) >= cnt:
-                settings['port'] = arduinoPorts[cnt]
-            else:
-                self._logger.warning("Can't set comport for Arduino automatically! Set the port manually!")
-        else:
-            self._logger.warning("No ComPorts for Arduino available, connect a device!")
-
-    def getComPorts(self, settings, connMenu):
-        """
-
-        :param settings:
-        :param connMenu:
-        """
-
-        def setPort(port):
-            def fn():
-                settings['port'] = port
-
-            return fn
-
-        port = settings['port']
-        connMenu.clear()
-        comPorts = serial.tools.list_ports.comports()
-        if comPorts:
-            if port == '':
-                arduinoPorts = [p.device for p in comPorts if 'Arduino' in p.description]
-                if len(arduinoPorts) != 0:
-                    port = arduinoPorts[0]
-                    settings['port'] = port
-            for p in comPorts:
-                portAction = QAction(p.device, self)
-                portAction.setCheckable(True)
-                portAction.setChecked(True if p.device in port else False)
-                portAction.triggered.connect(setPort(p.device))
-                connMenu.addAction(portAction)
-        else:
-            noAction = QAction("(None)", self)
-            noAction.setEnabled(False)
-            connMenu.addAction(noAction)
 
     def _updateExperimentsList(self):
         self.experimentList.clear()
@@ -1419,35 +1291,38 @@ class MainGui(QMainWindow):
         """
         Connects all connections and sets the button states.
         """
-        for name, conn in self.connections.items():
-            connInstance = conn['cls']()
-            if connInstance.connect():
-                self._logger.info(f"Connection for {name} established!")
-                self.actConnect.setEnabled(False)
-                self.actDisconnect.setEnabled(True)
-                if self._currentExpListItem is not None and self.selectedExp:
-                    self.actStartExperiment.setEnabled(True)
-                self.actStopExperiment.setEnabled(False)
-                self.statusbarLabel.setText("Connected!")
-                connInstance.received.connect(lambda frame: self.updateData(frame, name))
-                connInstance.finished.connect(self.disconnect)
-                self.connections[name]['inst'] = connInstance
-                self.isConnected = True
-            else:
-                self._logger.warning(f"No connection for {name} established! Check your settings!")
-                self.isConnected = False
-                return
+        if self.isConnected:
+            return
+        clist = [c.connection for c in self.connMenu.connectors]
+        if len(clist) > 1:
+            self._logger.warning(f"multiple connections not implemented! using first connection")
+        c = clist[0]
+        if c.connect():
+            self.connection = c
+            self._logger.info(f"Connection for {type(c)} established!")
+            self.actConnect.setEnabled(False)
+            self.actDisconnect.setEnabled(True)
+            if self._currentExpListItem is not None and self.selectedExp:
+                self.actStartExperiment.setEnabled(True)
+            self.actStopExperiment.setEnabled(False)
+            self.statusbarLabel.setText("Connected!")
+            c.received.connect(self.updateData)
+            c.finished.connect(self.disconnect)
+            self.isConnected = True
+        else:
+            self._logger.warning(f"No connection for {type(c)} established! Check your settings!")
+            self.isConnected = False
 
     def writeToConnection(self, data):
         """
         PySignal function, that sends the given data to the connections
         :param data: to send data
         """
-        if data['id'] == 1:
-            for conn in self.connections.values():
-                conn['inst'].writeData(data)
-        else:
-            self.connections[data['connection']]['inst'].writeData(data)
+        try:
+            self.connection.writeData(data)
+            #TODO: multiple connections
+        except AttributeError:
+            pass
 
     @pyqtSlot()
     def disconnect(self):
@@ -1456,11 +1331,8 @@ class MainGui(QMainWindow):
         """
         if self.actStopExperiment.isEnabled():
             self.stopExperiment()
-
-        for conn in self.connections.values():
-            if conn.get('inst', None) and conn['inst'].connected:
-                conn['inst'].disconnect()
-                del conn['inst']
+        if self.isConnected:
+            self.connection.disconnect()
         self.actConnect.setEnabled(True)
         self.actDisconnect.setEnabled(False)
         self.actStartExperiment.setEnabled(False)
@@ -1482,8 +1354,8 @@ class MainGui(QMainWindow):
 
         return list
 
-    def updateData(self, frame, connection):
-        data = self.exp.handleFrame(frame, connection)
+    def updateData(self, frame):
+        data = self.exp.handleFrame(frame)
         if data is None:
             return
         time = data['Time'] / 1000.0
